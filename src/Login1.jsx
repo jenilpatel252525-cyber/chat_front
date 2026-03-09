@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import API from "./api";
 import { useEncryption } from "./context/EncryptionContext";
-import { decryptPrivateKeyWithPassword } from "./utils/e2ee";
+
 import {
   createKeysAndEncryptedBackup,
 } from "./utils/e2ee";
@@ -24,23 +24,18 @@ export default function Login() {
     // Check if keys already exist
     const res = await API.get("/encryption-keys/");
     if (res.data && res.data.length > 0) {
-      const backup = res.data?.[0]?.encrypted_private_key_backup;
-      try {
-            const privateKey = await decryptPrivateKeyWithPassword(
-              backup,
-              formData.password
-            );
-      
-            setPrivateKey(privateKey);
-      } 
-      catch {
-        setError("Incorrect password.");
-      } 
       return; // already set up
     }
 
     // First-time setup
-    const password = formData.password
+    const password = window.prompt(
+      "Create an encryption password (used to protect your private chat key).\n\n⚠️ Do NOT forget this password."
+    );
+
+    if (!password) {
+      alert("Encryption password is required to continue.");
+      throw new Error("Encryption setup cancelled");
+    }
 
     const {
       publicKeyBase64,

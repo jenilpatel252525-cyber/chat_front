@@ -149,13 +149,13 @@ export default function Groups() {
       <div className="flex flex-col justify-center items-center h-screen gap-4 p-4">
       {/* ================= GROUP LIST ================= */}
       <h1 className="text-2xl font-bold">My Groups</h1>
-      <ul className="flex flex-col bg-gray-100 rounded-2xl p-4 w-80 gap-2">
+      <ul className="flex flex-col bg-gray-100 p-4 w-full gap-2">
         {groups.length > 0 ? (
           groups.map((g) => (
             <div className="flex flex-row">
               <li
               key={g.id}
-              className="flex justify-between bg-green-400 w-2xl hover:bg-green-800 rounded-2xl p-2"
+              className="flex justify-between bg-green-400 w-2xl hover:bg-green-800 p-2"
             >
               <button
                 className="text-white px-3 py-1 rounded-xl w-full text-center"

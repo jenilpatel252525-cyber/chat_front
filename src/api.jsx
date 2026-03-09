@@ -62,11 +62,11 @@ API.interceptors.response.use(
     // Only handle 401 once per request
     if (error.response && error.response.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      const refreshToken = localStorage.getItem("refresh");
+      const refreshToken = sessionStorage.getItem("refresh");
 
       if (!refreshToken) {
         // No refresh token, force logout
-        localStorage.removeItem("access");
+        sessionStorage.removeItem("access");
         window.location.href = "/login";
         return Promise.reject(error);
       }
@@ -82,7 +82,7 @@ API.interceptors.response.use(
         }
 
         // Store new access token
-        localStorage.setItem("access", newAccess);
+        sessionStorage.setItem("access", newAccess);
 
         // Properly set axios defaults so subsequent requests include Authorization
         API.defaults.headers = API.defaults.headers || {};

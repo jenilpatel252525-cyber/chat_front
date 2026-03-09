@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import API from "./api";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
+import UnlockKeyModal from "./UnlockKeyModal";
+import { useEncryption } from "./context/EncryptionContext";
 
 export default function Home() {
   const BACKEND =
@@ -15,6 +17,41 @@ export default function Home() {
   const [profileId, setProfileId] = useState(null);
   const [rooms, setRooms] = useState([]);
   const navigate = useNavigate();
+  const { privateKey } = useEncryption();
+
+  // 🔐 unlock flow
+  const [needsUnlock, setNeedsUnlock] = useState(false);
+  const [encryptedBackup, setEncryptedBackup] = useState(null);
+  const [checkedKey, setCheckedKey] = useState(false);
+
+  // =========================
+  // STEP 1: KEY GATE
+  // =========================
+  useEffect(() => {
+    async function checkPrivateKey() {
+      if (privateKey) {
+        setCheckedKey(true);
+        return;
+      }
+
+      try {
+        const res = await API.get("/encryption-keys/");
+        const backup = res.data?.[0]?.encrypted_private_key_backup;
+
+        if (backup) {
+          setEncryptedBackup(backup);
+          setNeedsUnlock(true);
+        }
+      } catch (err) {
+        console.error("Failed to check encryption keys:", err);
+      } finally {
+        setCheckedKey(true);
+      }
+    }
+
+    checkPrivateKey();
+  }, []);
+
   // =========================
   // STEP 2: FETCH DATA
   // =========================
@@ -38,9 +75,11 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(()=>{
-    fetchContacts()
-  },[])
+  useEffect(() => {
+    if (!needsUnlock && checkedKey) {
+      fetchContacts();
+    }
+  }, [needsUnlock, checkedKey, fetchContacts]);
 
   async function handleRemove(roomId) {
     const roomRes = await API.get(`/rooms/${roomId}/`);
@@ -84,18 +123,38 @@ export default function Home() {
   },[])
 
   // =========================
+  // BLOCK UNTIL UNLOCK
+  // =========================
+  if (!checkedKey) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <p className="text-gray-500">Loading secure session…</p>
+      </div>
+    );
+  }
+
+  if (needsUnlock && encryptedBackup) {
+    return (
+      <UnlockKeyModal
+        encryptedBackup={encryptedBackup}
+        onSuccess={() => setNeedsUnlock(false)}
+      />
+    );
+  }
+
+  // =========================
   // UI
   // =========================
   return (
     <div className="flex flex-col h-screen">
       <Navbar />
-      <div className="flex justify-center items-center h-screen p-4">
-        <div className="flex flex-col items-center gap-4 w-full">
+      <div className="flex justify-center items-center h-screen">
+        <div className="flex flex-col items-center gap-4">
           <h1 className="text-2xl font-bold">
             My Contacts (Profile {profileId})
           </h1>
 
-          <ul className="flex flex-col bg-gray-100 p-4 w-full gap-2">
+          <ul className="flex flex-col bg-gray-100 rounded-2xl p-4 w-80 gap-2">
             {rooms.length ? (
               rooms.map((room) => {
                 const otherUser =
@@ -103,7 +162,7 @@ export default function Home() {
 
                 return (
                   <div key={room.id} className="flex">
-                    <li className="flex-1 bg-green-400 p-2 hover:bg-green-700">
+                    <li className="flex-1 bg-green-400 rounded-2xl p-2 hover:bg-green-700">
                       <button
                         onClick={() =>
                           navigate(`/chat/${room.id}/false`, {

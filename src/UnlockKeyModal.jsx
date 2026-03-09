@@ -11,7 +11,7 @@ export default function UnlockKeyModal({ encryptedBackup, onSuccess }) {
   const navigate = useNavigate()
 
   const submit = () => {
-    localStorage.clear()
+    sessionStorage.clear()
     navigate("/")
   }
 
