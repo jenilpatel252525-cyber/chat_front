@@ -62,6 +62,7 @@ export default function Home() {
     });
 
     await API.delete(`/rooms/${roomId}/`);
+    setRooms(prev => prev.filter(r => r.id !== roomId));
     fetchContacts();
   }
 
