@@ -4,18 +4,11 @@ import API from "./api";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 
-import {
-  generateRoomKey,
-  encryptRoomKeyForUser,
-} from "./utils/groupCrypto";
-
 export default function CreateGroups() {
   const [contacts, setContacts] = useState([]);
   const [selected, setSelected] = useState([]);
   const [name, setName] = useState("");
   const navigate = useNavigate();
-
-  const INITIAL_VERSION = 1; // 🔐 initial room key version
 
   // --------------------------------------------------
   // Fetch logged-in user's profile and contacts
@@ -48,90 +41,41 @@ export default function CreateGroups() {
   // Create new group
   // --------------------------------------------------
   async function onSubmit(e) {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!name.trim()) {
-      alert("Please enter a group name.");
-      return;
-    }
-
-    if (selected.length === 0) {
-      alert("Please select at least one contact.");
-      return;
-    }
-
-    try {
-      // 1️⃣ Create room
-      const res = await API.post("/rooms/", {
-        name: name.trim(),
-        is_group: true,
-        participants_ids: selected,
-      });
-
-      const room = res.data;
-      const roomId = room.id;
-
-      // 2️⃣ Generate AES room key (client-side)
-      const roomKey = await generateRoomKey();
-
-      // 3️⃣ Encrypt room key for every participant
-      const keysPayload = [];
-
-      for (const p of room.participants || []) {
-        try {
-          const userId = p.user.id;
-
-          const ekRes = await API.get(
-            `/encryption-keys/?user_id=${userId}`
-          );
-          const publicKey = ekRes.data?.[0]?.public_key;
-
-          if (!publicKey) {
-            console.warn(
-              `No public key for ${p.user.username}, skipping`
-            );
-            continue;
-          }
-
-          const encryptedRoomKey =
-            await encryptRoomKeyForUser(roomKey, publicKey);
-
-          keysPayload.push({
-            user_profile_id: p.id,
-            encrypted_room_key: encryptedRoomKey,
-            version: INITIAL_VERSION, // 🔐 IMPORTANT
-          });
-        } catch (err) {
-          console.error(
-            "Error encrypting room key for participant",
-            p,
-            err
-          );
-        }
-      }
-
-      // 4️⃣ Send encrypted room keys to backend
-      if (keysPayload.length > 0) {
-        await API.post(`/rooms/${roomId}/set-room-keys/`, {
-          keys: keysPayload,
-        });
-      } else {
-        console.warn("No room keys were uploaded.");
-      }
-
-      alert("Group created successfully");
-
-      setName("");
-      setSelected([]);
-
-      navigate(`/chat/${roomId}/true`, {
-        state: { contacts },
-      });
-    } catch (err) {
-      console.error("Error creating group:", err);
-      alert("Failed to create group.");
-    }
+  if (!name.trim()) {
+    alert("Please enter a group name.");
+    return;
   }
+
+  if (selected.length === 0) {
+    alert("Please select at least one contact.");
+    return;
+  }
+
+  try {
+    const res = await API.post("/rooms/", {
+      name: name.trim(),
+      is_group: true,
+      participants_ids: selected,
+    });
+
+    const room = res.data;
+    const roomId = room.id;
+
+    alert("Group created successfully");
+
+    setName("");
+    setSelected([]);
+
+    navigate(`/chat/${roomId}/true`, {
+      state: { contacts },
+    });
+  } catch (err) {
+    console.error("Error creating group:", err);
+    alert("Failed to create group.");
+  }
+}
 
   // --------------------------------------------------
   // UI

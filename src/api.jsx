@@ -1,22 +1,7 @@
 // src/api.js
 import axios from "axios";
 
-
-
-
-
-
-
-
 //use sessionStorage for multi tab logins
-
-
-
-
-
-
-
-
 
 /**
  * Configure this via env:

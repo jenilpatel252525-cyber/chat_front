@@ -1,11 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import API from "./api";
-import { useEncryption } from "./context/EncryptionContext";
-import { decryptPrivateKeyWithPassword } from "./utils/e2ee";
-import {
-  createKeysAndEncryptedBackup,
-} from "./utils/e2ee";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -15,48 +10,6 @@ export default function Login() {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const {setPrivateKey} = useEncryption()
-
-  // ============================================================
-  // 🔐 Ensure RSA encryption keys exist for this user
-  // ============================================================
-  async function ensureEncryptionKeys() {
-    // Check if keys already exist
-    const res = await API.get("/encryption-keys/");
-    if (res.data && res.data.length > 0) {
-      const backup = res.data?.[0]?.encrypted_private_key_backup;
-      try {
-            const privateKey = await decryptPrivateKeyWithPassword(
-              backup,
-              formData.password
-            );
-      
-            setPrivateKey(privateKey);
-      } 
-      catch {
-        setError("Incorrect password.");
-      } 
-      return; // already set up
-    }
-
-    // First-time setup
-    const password = formData.password
-
-    const {
-      publicKeyBase64,
-      encryptedBackup,
-      privateKey,
-    } = await createKeysAndEncryptedBackup(password);
-
-    // Store public key + encrypted private key backup
-    await API.post("/encryption-keys/", {
-      public_key: publicKeyBase64,
-      encrypted_private_key_backup: encryptedBackup,
-    });
-
-    // 🔐 Keep private key ONLY in memory
-    setPrivateKey(privateKey);
-  }
 
   // ============================================================
   // Login handler
@@ -67,24 +20,18 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 1️⃣ Get JWT tokens
       const res = await API.post("/token/", {
         username: formData.username,
         password: formData.password,
       });
 
-      // 2️⃣ Save tokens
       sessionStorage.setItem("access", res.data.access);
       sessionStorage.setItem("refresh", res.data.refresh);
 
-      // 3️⃣ Ensure encryption keys exist
-      await ensureEncryptionKeys();
-
-      // 4️⃣ Go to home
       navigate("/home");
     } catch (err) {
       console.error(err);
-      setError("Invalid credentials or encryption setup failed.");
+      setError("Invalid credentials.");
     } finally {
       setLoading(false);
     }

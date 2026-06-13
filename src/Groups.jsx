@@ -2,10 +2,6 @@ import { useState, useEffect , useRef } from "react";
 import API from "./api";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
-import {
-  generateRoomKey,
-  encryptRoomKeyForUser,
-} from "./utils/groupCrypto";
 
 export default function Groups() {
   const [groups, setGroups] = useState([]);
@@ -61,60 +57,17 @@ export default function Groups() {
     fetchGroups();
   }, []);
 
-  async function rotateAndDistributeRoomKey(room) {
-  const newRoomKey = await generateRoomKey();
-  const keysPayload = [];
-
-  for (const p of room.participants) {
-    try {
-      const res = await API.get(
-        `/encryption-keys/?user_id=${p.user.id}`
-      );
-
-      const pubKey = res.data[0]?.public_key;
-      if (!pubKey) continue;
-
-      const encryptedRoomKey = await encryptRoomKeyForUser(
-        newRoomKey,
-        pubKey
-      );
-
-      keysPayload.push({
-        user_profile_id: p.id,
-        encrypted_room_key: encryptedRoomKey,
-      });
-    } catch (e) {
-      console.error("Key encrypt failed for", p.user.username, e);
-    }
-  }
-
-  if (keysPayload.length > 0) {
-    alert("done")
-    await API.post(
-      `/rooms/${room.id}/set-room-keys/`,
-      { keys: keysPayload }
-    );
-  }
-  else{
-    alert("deny")
-  }
-}
-
   async function handleRemove(g){
     await API.delete(`/rooms/${g.id}/`)
     fetchGroups();
   }
 
   async function handleRemove1(g){
-    const res=await API.post(`/rooms/${g.id}/remove_member/`,{
-      participants_ids:[profileId]
-    })
-    console.log(res.data);
-    console.log("here");
-    
-    await rotateAndDistributeRoomKey(res.data)
-    fetchGroups();
-  }
+  await API.post(`/rooms/${g.id}/remove_member/`,{
+    participants_ids:[profileId]
+  })
+  fetchGroups();
+}
 
   useEffect(()=>{
     const token = sessionStorage.getItem("access") || "";

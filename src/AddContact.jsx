@@ -49,7 +49,7 @@ export default function AddContact() {
       const res=await API.post("/userprofile/add_contact/", { profile_id: num });
       console.log(res.data);
 
-      if (res["message"]==="Already in contacts."){
+      if (res.data["message"]==="Already in contacts."){
         alert("Already in contacts.")
         return
       }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import API from "./api";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
+import Loader from "./Loader";
 
 export default function Home() {
   const BACKEND =
@@ -15,11 +16,14 @@ export default function Home() {
   const [profileId, setProfileId] = useState(null);
   const [rooms, setRooms] = useState([]);
   const navigate = useNavigate();
+  const [loading,setLoading]=useState(false)
   // =========================
   // STEP 2: FETCH DATA
   // =========================
+
   const fetchContacts = useCallback(async () => {
     try {
+      setLoading(true)
       const res = await API.get("/userprofile/");
       const userProfile = res.data[0];
 
@@ -35,6 +39,9 @@ export default function Home() {
       setRooms(allRooms.filter((r) => !r.is_group));
     } catch (err) {
       console.error("Error fetching contacts:", err);
+    }
+    finally{
+      setLoading(false)
     }
   }, []);
 
@@ -86,7 +93,13 @@ export default function Home() {
   // =========================
   // UI
   // =========================
-  return (
+  if (loading){
+    return (
+      <Loader></Loader>
+    )
+  }
+  else{
+    return (
     <div className="flex flex-col h-screen">
       <Navbar />
       <div className="flex justify-center items-center h-screen p-4">
@@ -148,3 +161,4 @@ export default function Home() {
     </div>
   );
 }
+  }

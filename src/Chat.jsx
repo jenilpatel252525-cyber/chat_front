@@ -3,22 +3,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import API from "./api";
 import Navbar from "./Navbar";
-
-import {
-  decryptWithPrivateKey,
-  importPublicKey,
-  encryptWithPublicKey,
-} from "./utils/rsa";
-
-import {
-  decryptRoomKeyForCurrentUser,
-  encryptMessageWithRoomKey,
-  decryptMessageWithRoomKey,
-  generateRoomKey,
-  encryptRoomKeyForUser,
-} from "./utils/groupCrypto";
-
-import { useEncryption } from "./context/EncryptionContext";
+import Loader from "./Loader";
 
 const BACKEND =
   import.meta.env.VITE_API_URL ||
@@ -34,15 +19,10 @@ export default function Chat() {
 
   const location = useLocation();
   const contacts = location.state?.contacts || [];
-  const use = location.state?.profileId || null
   const navigate = useNavigate();
 
   const messagesEndRef = useRef(null);
-  const pendingMessagesRef = useRef([]);
-  const keysReadyRef = useRef(false);
   const adminRef = useRef("")
-
-  const { privateKey } = useEncryption();
 
   // ---------------------------
   // Core state
@@ -59,10 +39,6 @@ export default function Chat() {
   const [admin, setAdmin] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [remain, setRemain] = useState([]);
-  const roomKeyVersionRef = useRef(null);
-  const roomKeysRef = useRef({});
-  const pendingOutgoingRef = useRef([]);
-
 
   // ---------------------------
   // Group keys
@@ -71,23 +47,16 @@ export default function Chat() {
   // ---------------------------
   // 1-1 helpers
   // ---------------------------
-  const [otherUserProfile, setOtherUserProfile] = useState(null);
-  const [recipientPublicKey, setRecipientPublicKey] = useState(null);
   const [name, setName] = useState("");
 
   // ---------------------------
   // Selection (admin add/remove)
   // ---------------------------
   const [selected, setSelected] = useState([]);
+  const [loading,setLoading]=useState(false)
   // ---------------------------
   // Guard: private key
   // ---------------------------
-  useEffect(() => {
-    if (!privateKey) {
-      alert("Please unlock your encryption key first");
-      navigate("/home");
-    }
-  }, []);
 
   // ============================================================
   // Fetch logged-in user profile
@@ -102,7 +71,9 @@ export default function Chat() {
   // Fetch room + messages
   // ============================================================
   const fetchMessages = useCallback(async () => {
-  if (!user || !privateKey) return;
+  if (!user) return;
+  
+  setLoading(true)
 
   // 1️⃣ Fetch room + messages
   const [msgRes, roomRes] = await Promise.all([
@@ -118,15 +89,12 @@ export default function Chat() {
   setAdmin(room.admin);
   adminRef.current = room.admin.user.username
   console.log(room.admin.user.username);
-  
-  roomKeyVersionRef.current=room.key_version
 
   setParticipants(
     room.participants.filter((p) => p.id !== room.admin.id)
   );
 
   const other = room.participants.find((p) => p.id !== user.id);
-  setOtherUserProfile(other || null);
   setName(other?.user?.username || "");
 
   setRemain(
@@ -135,68 +103,9 @@ export default function Chat() {
     )
   );
 
-  // 3️⃣ Load & decrypt room keys FIRST
-  let keyMap = {};
-  if (isGroupBool) {
-    const rkRes = await API.get(`/room-keys/?room_id=${room.id}`);
-
-    for (const rk of rkRes.data) {
-      try {
-        const key = await decryptRoomKeyForCurrentUser(
-          rk.encrypted_room_key,
-          privateKey
-        );
-        if (key) keyMap[rk.version] = key;
-      } catch {
-        // user not allowed for this version → skip
-      }
-    }
-
-    roomKeysRef.current = keyMap;
-    keysReadyRef.current = true;
-  }
-
-  // 4️⃣ Decrypt messages ONLY if key exists
-  const decrypted = await Promise.all(
-    msgs.map(async (m) => {
-      try {
-        // ---------- GROUP ----------
-        if (isGroupBool) {
-          const key = keyMap[m.key_version];
-          if (!key) return null; // 🚫 no key → hide message
-
-          return {
-            ...m,
-            text: await decryptMessageWithRoomKey(
-              key,
-              m.encrypted_text
-            ),
-          };
-        }
-
-        // ---------- 1-1 ----------
-        const isSender = m.user?.id === user.id;
-        const ciphertext = isSender
-          ? m.encrypted_for_sender
-          : m.encrypted_for_receiver;
-
-        if (!ciphertext) return null;
-
-        return {
-          ...m,
-          text: await decryptWithPrivateKey(
-            ciphertext,
-            privateKey
-          ),
-        };
-      } catch {
-        return null; // decrypt failed → hide
-      }
-    })
-  );
-
   // 5️⃣ Filter undecryptable messages (correct UX)
-  setMessages(decrypted.filter(Boolean));
+  setMessages(msgs);
+  setLoading(false)
 
 }, [roomId, contacts, isGroupBool, user]);
 
@@ -204,107 +113,11 @@ export default function Chat() {
     fetchMessages();
   }, [fetchMessages]);
 
-  async function fetchRoomKeys() {
-    let keyMap = {};
-    if (isGroupBool) {
-      const rkRes = await API.get(`/room-keys/?room_id=${roomId}`);
-
-      for (const rk of rkRes.data) {
-        try {
-          const key = await decryptRoomKeyForCurrentUser(
-           rk.encrypted_room_key,
-           privateKey
-          );
-          if (key) keyMap[rk.version] = key;
-        } catch {
-          // user not allowed for this version → skip
-        }
-      }
-
-      roomKeysRef.current=keyMap
-      keysReadyRef.current = true;
-
-      const pending = [...pendingMessagesRef.current];
-      pendingMessagesRef.current = [];
-
-      for (const msg of pending) {
-        await tryDecryptAndAppend(msg);
-      }
-
-      for (const text of pendingOutgoingRef.current) {
-        const key = roomKeysRef.current[roomKeyVersionRef.current];
-        const encrypted = await encryptMessageWithRoomKey(key, text);
-        socketRef.current.send(JSON.stringify({ encrypted_text: encrypted }));
-      }
-      pendingOutgoingRef.current = [];
-    }
-  }
-
-  async function tryDecryptAndAppend(msg, keyMapOverride = null) {
-  const keyMap = keyMapOverride || roomKeysRef.current;
-
-  if (msg.key_version < roomKeyVersionRef.current){
-    return
-  }
-
-  // 🔐 version guard
-  if (roomKeyVersionRef.current === null || msg.key_version > roomKeyVersionRef.current) {
-    pendingMessagesRef.current.push(msg);
-    console.log(roomKeyVersionRef.current);
-    alert("back1")
-    return;
-  }
-
-  const key = keyMap[msg.key_version];
-  if (!key) {
-    alert("no key")
-    // removed member OR no access
-    return;
-  }
-
-  const text = await decryptMessageWithRoomKey(
-    key,
-    msg.encrypted_text
-  );
-
-  console.log(messages);
-  
-  setMessages(prev => [
-    ...prev,
-    {
-      id: msg.id,
-      text,
-      user: { username: msg.user },
-      timestamp: msg.timestamp,
-    },
-  ]);
-
-  console.log(messages);
-  
-}
-
-  // ============================================================
-  // Fetch recipient public key (1-1)
-  // ============================================================
-  useEffect(() => {
-    if (isGroupBool || !otherUserProfile) return;
-
-    API.get(
-      `/encryption-keys/?user_id=${otherUserProfile.user.id}`
-    ).then(async (res) => {
-      if (res.data[0]?.public_key) {
-        setRecipientPublicKey(
-          await importPublicKey(res.data[0].public_key)
-        );
-      }
-    });
-  }, [isGroupBool, otherUserProfile]);
-
   // ============================================================
   // WebSocket
   // ============================================================
   useEffect(() => {
-    if (!user || !privateKey){
+    if (!user){
       return
     };
 
@@ -323,86 +136,40 @@ export default function Chat() {
       console.log(data);
 
       if (data["type"] === "removed"){
-        alert("you are not a member of this group now")
-        return
-      }
-
-      if (data["type"] === "room.key_rotated") {
-        roomKeyVersionRef.current=data["version"];
-        keysReadyRef.current = false;
-
-        await fetchRoomKeys(); 
-        await fetchMessages()// reload keys + messages
-
-      }
-      
-      if (data["type"] === "chat_message") {
-        // alert("here3")
-    try {
-      // alert("here2")
-      let text = "[cannot decrypt]";
-
-      // ---------- GROUP ----------
-      if (isGroupBool) {
-        if (!keysReadyRef.current) {
-          pendingMessagesRef.current.push(data);
-          alert(
-            "back"
-          )
-          return;
-        }
-        if (data["key_version"] < roomKeyVersionRef.current){
+          alert("You are not a member of this group now")
+          setTimeout(() => navigate("/groups"), 100)
           return
-        }
-        await tryDecryptAndAppend(data);
+      }
+
+      if (data["type"] === "deleted"){
+          alert("The group was deleted by the admin")
+          setTimeout(() => navigate("/groups"), 100)
+          return
+      }
+
+      if (data["type"] === "REFRESH_MEMBERS"){
+        fetchMessages()
         return
       }
-
-      // ---------- 1-1 ----------
-      else {
-        // alert("here1")
-        const isSender = data["user_id"] === use;
-        console.log({
-          wsUser: data["user_id"],
-          stateUser: use,
-          isSender,
-        });
-
-        const ciphertext = isSender
-          ? data.encrypted_for_sender
-          : data.encrypted_for_receiver;
-
-        if (ciphertext) {
-          // alert("ciphertext")
-          console.log(privateKey);
-          
-          text = await decryptWithPrivateKey(
-            ciphertext,
-            privateKey
-          );
-        }
-        setMessages((prev) => [
-        ...prev,
-        {
-          id: data["id"],
-          text,
-          user: { username: data["user"] },
-          timestamp: data.timestamp,
-        },
-      ]);
-      }
       
-    } catch (e) {
-      console.error("WS decrypt failed:", e);
+      if (data.type === "chat_message") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: data.id,
+            text: data.text,
+            user: { username: data.user },
+            timestamp: data.timestamp,
+          },
+        ]);
+      }
     }
-  }
-}
 
   return () => {
     ws.close();                // ✅ close ONLY in cleanup
     socketRef.current = null;
   }
-  }, [roomId, isGroupBool,user,privateKey]);
+  }, [roomId, isGroupBool,user]);
 
   // ============================================================
   // Auto-scroll
@@ -416,54 +183,21 @@ export default function Chat() {
   // ============================================================
   const sendMessage = async (e) => {
     e.preventDefault();
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN || !privateKey) {
-      alert("Contact has removed you.")
-      navigate("/home")
-    };
 
-    // -------- 1-1 --------
-    if (!isGroupBool) {
-      if (!recipientPublicKey) return;
-
-      const encForReceiver = await encryptWithPublicKey(
-        recipientPublicKey,
-        newMsg
-      );
-
-      const encForSender = await encryptWithPublicKey(
-        await importPublicKey(
-          (await API.get("/encryption-keys/")).data[0].public_key
-        ),
-        newMsg
-      );
-
-      socketRef.current.send(
-        JSON.stringify({
-          encrypted_for_sender: encForSender,
-          encrypted_for_receiver: encForReceiver,
-        })
-      );
+    if (
+      !socketRef.current ||
+      socketRef.current.readyState !== WebSocket.OPEN
+    ) {
+      alert("Contact has removed you.");
+      navigate("/home");
+      return;
     }
 
-    // -------- GROUP --------
-    else {
-      //start
-      const key = roomKeysRef.current[roomKeyVersionRef.current]
-      if (!key) {
-        pendingOutgoingRef.current.push(newMsg);
-        return
-      }
-      const encrypted = await encryptMessageWithRoomKey(
-        key,
-        newMsg
-      );
-
-      socketRef.current.send(
-        JSON.stringify({
-          encrypted_text: encrypted,
-        })
-      );
-    }
+    socketRef.current.send(
+      JSON.stringify({
+        text: newMsg,
+      })
+    );
 
     setNewMsg("");
   };
@@ -472,49 +206,7 @@ export default function Chat() {
   // UI
   // ============================================================
 
-
-
-//here it is
-
-
-
-
-  async function rotateAndDistributeRoomKey(room) {
-  const newRoomKey = await generateRoomKey();
-  const keysPayload = [];
-
-  for (const p of room.participants) {
-    try {
-      const res = await API.get(
-        `/encryption-keys/?user_id=${p.user.id}`
-      );
-
-      const pubKey = res.data[0]?.public_key;
-      if (!pubKey) continue;
-
-      const encryptedRoomKey = await encryptRoomKeyForUser(
-        newRoomKey,
-        pubKey
-      );
-
-      keysPayload.push({
-        user_profile_id: p.id,
-        encrypted_room_key: encryptedRoomKey,
-      });
-    } catch (e) {
-      console.error("Key encrypt failed for", p.user.username, e);
-    }
-  }
-
-  if (keysPayload.length > 0) {
-    await API.post(
-      `/rooms/${room.id}/set-room-keys/`,
-      { keys: keysPayload }
-    );
-  }
-}
-
-  const handleSelected = (p) => {
+const handleSelected = (p) => {
   setSelected((prev) =>
     prev.includes(p.id)
       ? prev.filter((id) => id !== p.id)
@@ -526,16 +218,9 @@ const handleAdd = async () => {
   if (!selected.length) return;
 
   // 1️⃣ add members (backend rotates key_version)
-  const res=await API.post(`/rooms/${roomId}/add_member/`, {
+  await API.post(`/rooms/${roomId}/add_member/`, {
     participants_ids: selected,
   });
-
-  // 2️⃣ fetch updated room
-  // const roomRes = await API.get(`/rooms/${roomId}/`);
-  // const room = roomRes.data;
-
-  // 3️⃣ distribute new room key
-  await rotateAndDistributeRoomKey(res.data);
 
   setSelected([]);
   fetchMessages();
@@ -545,22 +230,21 @@ const handleRemove = async () => {
   if (!selected.length) return;
 
   // 1️⃣ remove members (backend rotates key_version)
-  const res=await API.post(`/rooms/${roomId}/remove_member/`, {
+  await API.post(`/rooms/${roomId}/remove_member/`, {
     participants_ids: selected,
   });
-
-  // 2️⃣ fetch updated room
-  // const roomRes = await API.get(`/rooms/${roomId}/`);
-  // const room = roomRes.data;
-
-  // 3️⃣ distribute new room key
-  await rotateAndDistributeRoomKey(res.data);
 
   setSelected([]);
   fetchMessages();
 };
 
-  return (
+  if (loading){
+    return (
+      <Loader></Loader>
+    )
+  }
+  else{
+    return (
     <div className="h-screen">
       <Navbar />
       <div className="flex flex-col items-center p-4 bg-gray-50">
@@ -663,3 +347,5 @@ const handleRemove = async () => {
     </div>
   );
 }
+
+  }

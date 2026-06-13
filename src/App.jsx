@@ -7,6 +7,7 @@ import Groups from "./Groups";
 import Chat from "./Chat";
 import AddContact from "./AddContact";
 import CreateGroups from "./CreateGroup";
+import Loader from "./Loader";
 
 export default function App() {
   return (
@@ -15,7 +16,6 @@ export default function App() {
         <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-
         <Route path="/home" element={<Home />} />
         <Route path="/groups" element={<Groups />} />
         <Route path="/creategroup" element={<CreateGroups />} />

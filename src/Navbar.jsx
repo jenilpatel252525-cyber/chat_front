@@ -1,12 +1,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { useEncryption } from "./context/EncryptionContext";
 
 export default function Navbar() {
-  const {setPrivateKey} = useEncryption()
   const submit = () => {
-    sessionStorage.clear()
-    setPrivateKey(null)
+    sessionStorage.clear;
   }
   return (
     <>
